@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from hogs.report import format_elapsed, format_ranking, format_system
+from hogs.report import format_elapsed, format_footer, format_ranking, format_system
 
 HEADER = "    PID   %CPU   %MEM   RSS_MB  POWER         ELAPSED  COMMAND"
 COLOR_HEADER = (
@@ -121,3 +121,11 @@ class TestFormatSystem:
         assert format_system(busy, color=True).splitlines()[0] == (
             "\033[1mload:\033[0m \033[31;1m17.50\033[0m 16.00 \033[31;1m16.01\033[0m on 16 cores"
         )
+
+
+class TestFormatFooter:
+    def test_plain_footer_is_the_text_itself(self):
+        assert format_footer("live, every 2s", color=False) == "live, every 2s"
+
+    def test_color_dims_the_footer(self):
+        assert format_footer("live, every 2s", color=True) == "\033[2mlive, every 2s\033[0m"

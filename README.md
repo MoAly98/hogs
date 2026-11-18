@@ -13,6 +13,7 @@ hogs                 # CPU, memory and energy rankings, 10 rows each
 hogs mem -n 5        # one ranking, 5 rows
 hogs energy          # takes about a second to sample
 hogs cpu --full      # whole commands instead of cutting them to the terminal width
+hogs cpu --live      # keep redrawing in the terminal, Ctrl-C to stop
 hogs web             # live view in the browser, Ctrl-C to stop
 ```
 
@@ -23,6 +24,10 @@ In a terminal the tables are coloured the same way as the browser view: CPU
 in blue, memory in yellow, energy in green, with the ranked column in bold.
 Load turns red when it is more than the cores can run. Pipes get plain text,
 and setting `NO_COLOR` turns colour off in a terminal too.
+
+`--live` redraws the rankings in place every two seconds (change with
+`--interval`), showing as many of the `-n` rows as fit the terminal height.
+Your scrollback is back as it was once you stop it.
 
 ### Browser view
 

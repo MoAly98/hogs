@@ -121,3 +121,8 @@ def format_system(stats: SystemStats, color: bool) -> str:
         f"{_paint('load:', color, _BOLD)} {load} on {stats.cores} cores\n"
         f"{_paint('swap:', color, _BOLD)} {swap_used} of {stats.swap_total_mb:.0f} MB used"
     )
+
+
+def format_footer(text: str, color: bool) -> str:
+    """A side note under the tables, dimmed with `color`."""
+    return _paint(text, color, _DIM)

@@ -3,6 +3,7 @@
 import json
 import os
 import pty
+import select
 import socket
 import subprocess
 import sys
@@ -74,6 +75,40 @@ class TestTerminalRankingOfRealProcesses:
         )
         assert lines[4].startswith("\033[1mload:\033[0m ")
         assert lines[5].startswith("\033[1mswap:\033[0m \033[33m")
+
+
+def read_until(terminal, marker):
+    """Collect terminal output until `marker` shows up in it."""
+    output = ""
+    deadline = time.monotonic() + 15
+    while marker not in output:
+        ready, _, _ = select.select([terminal], [], [], max(deadline - time.monotonic(), 0))
+        assert ready, f"no {marker!r} within 15 seconds, got {output!r}"
+        output += os.read(terminal, 65536).decode()
+    return output
+
+
+class TestLiveTerminalRankingOfRealProcesses:
+    def test_live_mode_draws_a_frame_and_restores_the_screen_when_stopped(self):
+        terminal, child_end = pty.openpty()
+        process = subprocess.Popen(
+            [HOGS, "cpu", "-n", "1", "--live"], stdout=child_end, stderr=subprocess.PIPE, text=True
+        )
+        try:
+            drawn = read_until(terminal, "(Ctrl-C to stop)")
+            process.terminate()
+            restored = read_until(terminal, "\033[?1049l")
+            _, errors = process.communicate(timeout=10)
+        finally:
+            process.kill()
+            os.close(child_end)
+            os.close(terminal)
+        assert drawn.startswith("\033[?1049h\033[?25l\033[H")
+        assert "== top CPU ==" in drawn
+        assert "live, every 2s (Ctrl-C to stop)" in drawn
+        assert restored.endswith("\033[?25h\033[?1049l")
+        assert process.returncode == 0
+        assert errors == ""
 
 
 class TestLiveViewOfRealProcesses:

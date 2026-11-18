@@ -117,6 +117,118 @@ class TestTerminalOutput:
         )
 
 
+@pytest.fixture
+def interrupted_sleeps(monkeypatch):
+    """Record each sleep, and press Ctrl-C during the second one."""
+    sleeps = []
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.time, "sleep", fake_sleep)
+    return sleeps
+
+
+class TestLiveMode:
+    def test_redraws_in_place_on_the_alternate_screen_until_interrupted(
+        self, sampled, interrupted_sleeps, monkeypatch, capsys
+    ):
+        pretend_stdout_is_a_terminal(monkeypatch)
+        monkeypatch.setenv("NO_COLOR", "1")
+        frame = (
+            "\033[H"
+            "== top CPU ==\033[K\n"
+            f"{HEADER}\033[K\n"
+            f"{WORKER_ROW}\033[K\n"
+            "\033[K\n"
+            "load: 3.35 2.98 4.70 on 16 cores\033[K\n"
+            "swap: 3191 of 4096 MB used\033[K\n"
+            "\033[K\n"
+            "live, every 2s (Ctrl-C to stop)\033[K\033[J"
+        )
+        assert cli.main(["cpu", "-n", "1", "--live"]) == 0
+        assert capsys.readouterr().out == (
+            f"\033[?1049h\033[?25l{frame}{frame}\033[?25h\033[?1049l"
+        )
+        assert interrupted_sleeps == [2, 2]
+        assert sampled == [False, False]
+
+    def test_interval_sets_the_seconds_between_redraws(
+        self, sampled, interrupted_sleeps, monkeypatch, capsys
+    ):
+        pretend_stdout_is_a_terminal(monkeypatch)
+        cli.main(["cpu", "-n", "1", "--live", "--interval", "5"])
+        assert interrupted_sleeps == [5, 5]
+        assert "\033[2mlive, every 5s (Ctrl-C to stop)\033[0m\033[K\033[J" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "mode, lines, titles_and_rows",
+        [
+            # 9 lines: title, header, 2 rows, blank, load, swap, blank, footer.
+            ("mem", "9", ["== top memory ==", CHAT_ROW, WORKER_ROW]),
+            # 19 lines: three rankings of 2 rows (5 lines each), then the last 4.
+            (
+                "all",
+                "19",
+                [
+                    "== top CPU ==", WORKER_ROW, CHAT_ROW,
+                    "== top memory ==", CHAT_ROW, WORKER_ROW,
+                    "== top energy ==", WORKER_ROW, CHAT_ROW,
+                ],
+            ),
+            # Too short for even one row: still show one.
+            ("mem", "3", ["== top memory ==", CHAT_ROW]),
+        ],
+    )
+    def test_rows_are_dropped_to_fit_the_terminal_height(
+        self, sampled, interrupted_sleeps, monkeypatch, capsys, mode, lines, titles_and_rows
+    ):
+        pretend_stdout_is_a_terminal(monkeypatch)
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.setenv("LINES", lines)
+        cli.main([mode, "-n", "3", "--live"])
+        first_frame = capsys.readouterr().out.split("\033[H")[1].removesuffix("\033[J")
+        shown = [line.removesuffix("\033[K") for line in first_frame.split("\n")]
+        assert [line for line in shown if line and line != HEADER] == [
+            *titles_and_rows,
+            "load: 3.35 2.98 4.70 on 16 cores",
+            "swap: 3191 of 4096 MB used",
+            "live, every 2s (Ctrl-C to stop)",
+        ]
+
+    def test_live_needs_a_terminal(self, sampled, capsys):
+        with pytest.raises(SystemExit) as error:
+            cli.main(["cpu", "--live"])
+        assert error.value.code == 2
+        assert "--live needs a terminal" in capsys.readouterr().err
+        assert sampled == []
+
+    @pytest.mark.parametrize(
+        "arguments, message",
+        [
+            (["cpu", "--live", "--full"], "--live cannot show whole commands, drop --full"),
+            (["web", "--live"], "--live is for the terminal rankings, not 'web'"),
+        ],
+    )
+    def test_live_rejects_what_it_cannot_combine_with(
+        self, sampled, monkeypatch, capsys, arguments, message
+    ):
+        pretend_stdout_is_a_terminal(monkeypatch)
+        with pytest.raises(SystemExit) as error:
+            cli.main(arguments)
+        assert error.value.code == 2
+        assert message in capsys.readouterr().err
+        assert sampled == []
+
+    def test_interval_must_be_a_positive_number(self, sampled, capsys):
+        with pytest.raises(SystemExit) as error:
+            cli.main(["cpu", "--live", "--interval", "0"])
+        assert error.value.code == 2
+        assert "must be a positive number" in capsys.readouterr().err
+
+
 class TestArguments:
     @pytest.mark.parametrize("count", ["0", "-3", "many"])
     def test_count_must_be_a_positive_number(self, sampled, capsys, count):
