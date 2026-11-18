@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hogs</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface: #fcfcfb;
+    --raised: #f3f2ef;
+    --border: #dddcd6;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --cpu: #2a78d6;
+    --mem: #eb6834;
+    --power: #1baf7a;
+    --serious: #ec835a;
+    --good: #0ca30c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface: #1a1a19;
+      --raised: #252523;
+      --border: #3a3a37;
+      --text: #f0efec;
+      --text-2: #c3c2b7;
+      --cpu: #3987e5;
+      --mem: #d95926;
+      --power: #199e70;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 24px 48px;
+    background: var(--surface); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, sans-serif;
+  }
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  #status { color: var(--text-2); flex: 1; }
+  button, input, select {
+    font: inherit; color: inherit; background: var(--raised);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--text-2); }
+  button[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tile { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile h2 { font-size: 12px; font-weight: 600; color: var(--text-2); margin: 0; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .value small { font-size: 13px; font-weight: 400; color: var(--text-2); }
+  .tile .note { color: var(--text-2); font-size: 12px; min-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spark { position: relative; height: 44px; margin-top: 6px; }
+  .spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .spark polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .spark .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-2); display: none; }
+  .meter { height: 8px; border-radius: 4px; background: var(--border); margin-top: 24px; margin-bottom: 18px; overflow: hidden; }
+  .meter div { height: 100%; border-radius: 4px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .controls input { flex: 1; min-width: 220px; padding: 6px 10px; }
+  .segmented { display: flex; }
+  .segmented button:first-child { border-radius: 6px 0 0 6px; }
+  .segmented button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { text-align: left; padding: 0; border-bottom: 1px solid var(--border); }
+  th button { width: 100%; text-align: inherit; background: none; border: 0; border-radius: 0; padding: 6px 8px; font-weight: 600; color: var(--text-2); }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td { padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  tr.row { cursor: pointer; }
+  tr.row:hover, tr.row.open { background: var(--raised); }
+  td.cmd { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); }
+  .bar { height: 4px; border-radius: 2px; margin: 2px 0 0 auto; min-width: 1px; }
+  col.w-name { width: 15%; } col.w-num { width: 9%; } col.w-time { width: 12%; } col.w-cmd { width: auto; }
+
+  tr.detail td { white-space: normal; background: var(--raised); padding: 12px 16px 16px; }
+  .detail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); margin: 12px 0 4px; }
+  .detail h3:first-child { margin-top: 0; }
+  .detail pre {
+    margin: 0 0 8px; padding: 10px; max-height: 260px; overflow: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chips button { font-size: 12px; padding: 2px 8px; background: var(--surface); }
+  .chips .sep { color: var(--text-2); }
+  #empty { color: var(--text-2); padding: 16px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>hogs</h1>
+  <span id="status">Taking the first sample…</span>
+  <button id="pause" aria-pressed="false">Pause</button>
+</header>
+
+<section class="tiles" id="tiles"></section>
+
+<section class="controls">
+  <input id="filter" type="search" placeholder="Filter by name, command or PID" aria-label="Filter processes">
+  <div class="segmented" role="group" aria-label="Group rows">
+    <button id="by-process" aria-pressed="true">Processes</button>
+    <button id="by-app" aria-pressed="false">Apps</button>
+  </div>
+  <label>Rows
+    <select id="limit">
+      <option>25</option><option selected>50</option><option>100</option><option value="100000">All</option>
+    </select>
+  </label>
+</section>
+
+<table>
+  <colgroup id="cols"></colgroup>
+  <thead><tr id="head"></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<p id="empty" hidden>No process matches the filter.</p>
+
+<script>
+const REFRESH_MS = 2000;
+const HISTORY_LENGTH = 150;
+
+const state = {
+  snapshot: null,
+  history: [],
+  paused: false,
+  group: false,
+  filter: "",
+  limit: 50,
+  sort: { key: "cpu", descending: true },
+  expanded: null,
+};
+
+const $ = (id) => document.getElementById(id);
+
+function el(tag, attributes = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    if (name === "class") node.className = value;
+    else if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+    else node.setAttribute(name, value);
+  }
+  node.append(...children);
+  return node;
+}
+
+function formatMemory(kb) {
+  const mb = kb / 1024;
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.round(mb) + " MB";
+}
+
+function formatElapsed(seconds) {
+  const two = (n) => String(n).padStart(2, "0");
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor(seconds % 86400 / 3600);
+  const clock = two(Math.floor(seconds % 3600 / 60)) + ":" + two(seconds % 60);
+  if (days) return days + "d " + two(hours) + ":" + clock;
+  return hours ? two(hours) + ":" + clock : clock;
+}
+
+function formatTime(epochSeconds) {
+  return new Date(epochSeconds * 1000).toLocaleTimeString();
+}
+
+const sum = (items, key) => items.reduce((total, item) => total + (item[key] || 0), 0);
+const heaviest = (items, key) => items.reduce((best, item) => (item[key] || 0) > (best[key] || 0) ? item : best);
+
+// ---- Columns ----
+
+const NUMBER_COLUMNS = [
+  { key: "cpu", label: "CPU %", number: true, bar: "--cpu", text: (row) => row.cpu.toFixed(1) },
+  { key: "rss_kb", label: "Memory", number: true, bar: "--mem", text: (row) => formatMemory(row.rss_kb) },
+  { key: "power", label: "Power", number: true, bar: "--power", text: (row) => row.power == null ? "–" : row.power.toFixed(1) },
+];
+const COLUMNS = {
+  process: [
+    { key: "name", label: "Name", width: "w-name", text: (row) => row.name },
+    { key: "pid", label: "PID", number: true, text: (row) => row.pid },
+    ...NUMBER_COLUMNS,
+    { key: "elapsed_seconds", label: "Running", number: true, width: "w-time", text: (row) => formatElapsed(row.elapsed_seconds) },
+    { key: "command", label: "Command", width: "w-cmd", css: "cmd", text: (row) => row.command },
+  ],
+  app: [
+    { key: "name", label: "App", width: "w-cmd", text: (row) => row.name },
+    { key: "count", label: "Processes", number: true, text: (row) => row.count },
+    ...NUMBER_COLUMNS,
+  ],
+};
+
+// ---- Rows ----
+
+function groupByApp(processes) {
+  const apps = new Map();
+  for (const process of processes) {
+    if (!apps.has(process.name)) {
+      apps.set(process.name, { id: process.name, name: process.name, count: 0, cpu: 0, rss_kb: 0, power: 0, members: [] });
+    }
+    const app = apps.get(process.name);
+    app.count += 1;
+    app.cpu += process.cpu;
+    app.rss_kb += process.rss_kb;
+    app.power += process.power || 0;
+    app.members.push(process);
+  }
+  return [...apps.values()];
+}
+
+function visibleRows() {
+  const needle = state.filter.toLowerCase();
+  const matching = state.snapshot.processes.filter((process) =>
+    !needle || process.command.toLowerCase().includes(needle) ||
+    process.name.toLowerCase().includes(needle) || String(process.pid) === needle);
+  const rows = state.group ? groupByApp(matching) : matching.map((process) => ({ ...process, id: process.pid }));
+  const { key, descending } = state.sort;
+  rows.sort((a, b) => {
+    const [x, y] = [a[key] ?? 0, b[key] ?? 0];
+    const order = typeof x === "string" ? x.localeCompare(y) : x - y;
+    return descending ? -order : order;
+  });
+  const shown = rows.slice(0, state.limit);
+  // Keep the open row on screen even when it falls below the row limit.
+  const open = rows.find((row) => row.id === state.expanded);
+  if (open && !shown.includes(open)) shown.push(open);
+  return shown;
+}
+
+// ---- Detail panels ----
+
+function copyButton(label, text) {
+  const button = el("button", {
+    onclick: async (event) => {
+      event.stopPropagation();
+      await navigator.clipboard.writeText(text);
+      button.textContent = "Copied";
+      setTimeout(() => { button.textContent = label; }, 1200);
+    },
+  }, label);
+  return button;
+}
+
+function processChip(process) {
+  const label = `${process.name} ${process.pid} · ${process.cpu.toFixed(1)}% · ${formatMemory(process.rss_kb)}`;
+  return el("button", { onclick: (event) => { event.stopPropagation(); showProcess(process.pid); } }, label);
+}
+
+function showProcess(pid) {
+  state.group = false;
+  state.filter = "";
+  $("filter").value = "";
+  state.expanded = pid;
+  render();
+  const open = document.querySelector("tr.row.open");
+  if (open) open.scrollIntoView({ block: "center" });
+}
+
+function familyOf(process) {
+  const byPid = new Map(state.snapshot.processes.map((p) => [p.pid, p]));
+  const ancestors = [];
+  for (let parent = byPid.get(process.ppid); parent && !ancestors.includes(parent); parent = byPid.get(parent.ppid)) {
+    ancestors.unshift(parent);
+  }
+  const children = state.snapshot.processes.filter((p) => p.ppid === process.pid);
+  const subtree = [process];
+  for (const member of subtree) {
+    subtree.push(...state.snapshot.processes.filter((p) => p.ppid === member.pid && !subtree.includes(p)));
+  }
+  return { ancestors, children, subtree };
+}
+
+function processDetail(process) {
+  const { ancestors, children, subtree } = familyOf(process);
+  const lineage = el("div", { class: "chips" });
+  for (const ancestor of ancestors) {
+    lineage.append(processChip(ancestor), el("span", { class: "sep" }, "›"));
+  }
+  lineage.append(el("strong", {}, `${process.name} ${process.pid}`));
+
+  const panel = el("div", { class: "detail" },
+    el("h3", {}, "Full command"),
+    el("pre", {}, process.command),
+    el("div", { class: "chips" },
+      copyButton("Copy command", process.command),
+      copyButton(`Copy "kill ${process.pid}"`, `kill ${process.pid}`)),
+    el("h3", {}, "Started by"),
+    lineage);
+
+  if (children.length) {
+    const total = `${sum(subtree, "cpu").toFixed(1)}% CPU and ${formatMemory(sum(subtree, "rss_kb"))} across ${subtree.length} processes`;
+    panel.append(
+      el("h3", {}, `Children (${children.length}) — with this process: ${total}`),
+      el("div", { class: "chips" }, ...children.sort((a, b) => b.cpu - a.cpu).map(processChip)));
+  }
+  return panel;
+}
+
+function appDetail(app) {
+  const members = [...app.members].sort((a, b) => b.cpu - a.cpu);
+  return el("div", { class: "detail" },
+    el("h3", {}, `Processes in ${app.name} (${app.count})`),
+    el("div", { class: "chips" }, ...members.map(processChip)));
+}
+
+// ---- Table ----
+
+function renderTable() {
+  const columns = COLUMNS[state.group ? "app" : "process"];
+  const rows = visibleRows();
+
+  $("cols").replaceChildren(...columns.map((column) => el("col", { class: column.width || "w-num" })));
+  $("head").replaceChildren(...columns.map((column) => {
+    const sorted = state.sort.key === column.key;
+    const arrow = sorted ? (state.sort.descending ? " ▾" : " ▴") : "";
+    const header = el("th", { class: column.number ? "num" : "" },
+      el("button", { onclick: () => sortBy(column) }, column.label + arrow));
+    if (sorted) header.setAttribute("aria-sort", state.sort.descending ? "descending" : "ascending");
+    return header;
+  }));
+
+  const largest = {};
+  for (const column of NUMBER_COLUMNS) largest[column.key] = Math.max(1, ...rows.map((row) => row[column.key] || 0));
+
+  const body = [];
+  for (const row of rows) {
+    const open = row.id === state.expanded;
+    const cells = columns.map((column) => {
+      const cell = el("td", { class: [column.number ? "num" : "", column.css || ""].join(" ") }, String(column.text(row)));
+      if (column.bar) {
+        const share = 100 * (row[column.key] || 0) / largest[column.key];
+        cell.append(el("div", { class: "bar", style: `width:${share}%;background:var(${column.bar})` }));
+      }
+      if (column.css === "cmd") cell.title = "Click the row for the full command";
+      return cell;
+    });
+    body.push(el("tr", {
+      class: open ? "row open" : "row",
+      onclick: () => { state.expanded = open ? null : row.id; render(); },
+    }, ...cells));
+    if (open) {
+      const detail = state.group ? appDetail(row) : processDetail(row);
+      body.push(el("tr", { class: "detail" }, el("td", { colspan: columns.length }, detail)));
+    }
+  }
+  $("rows").replaceChildren(...body);
+  $("empty").hidden = rows.length > 0;
+}
+
+function sortBy(column) {
+  const same = state.sort.key === column.key;
+  state.sort = { key: column.key, descending: same ? !state.sort.descending : Boolean(column.number) };
+  render();
+}
+
+// ---- Tiles ----
+
+const TILES = [
+  {
+    title: "CPU", color: "--cpu", key: "cores",
+    value: (now, system) => [now.cores.toFixed(1), ` of ${system.cores} cores busy`],
+    ceiling: (system) => system.cores,
+    describe: (point) => `${point.cores.toFixed(1)} cores · top: ${point.topCpu}`,
+    note: (now) => [null, "top: " + now.topCpu],
+  },
+  {
+    title: "Memory held by processes", color: "--mem", key: "memoryGb",
+    value: (now, system) => [now.memoryGb.toFixed(1), ` of ${(system.memory_mb / 1024).toFixed(0)} GB`],
+    ceiling: (system) => system.memory_mb / 1024,
+    describe: (point) => `${point.memoryGb.toFixed(1)} GB · top: ${point.topMemory}`,
+    note: (now) => [null, "top: " + now.topMemory],
+  },
+  {
+    title: "Load (1 min)", color: "--text-2", key: "load",
+    value: (now) => [now.load.toFixed(2), ""],
+    ceiling: (system) => system.cores,
+    describe: (point) => `load ${point.load.toFixed(2)}`,
+    note: (now, system) => now.load > system.cores
+      ? [["▲", "--serious"], `More work queued than ${system.cores} cores can run`]
+      : [["●", "--good"], `Within what ${system.cores} cores can run`],
+  },
+];
+const swapTile = {};
+
+function buildTiles() {
+  for (const tile of TILES) {
+    tile.valueNode = el("div", { class: "value" });
+    tile.noteNode = el("div", { class: "note" });
+    tile.line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    tile.line.style.stroke = `var(${tile.color})`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 100 40");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.append(tile.line);
+    tile.cursor = el("div", { class: "cursor" });
+    const spark = el("div", { class: "spark" }, svg, tile.cursor);
+    spark.addEventListener("mousemove", (event) => hoverTile(tile, spark, event));
+    spark.addEventListener("mouseleave", () => { tile.hovered = null; tile.cursor.style.display = "none"; renderTiles(); });
+    $("tiles").append(el("div", { class: "tile" }, el("h2", {}, tile.title), tile.valueNode, spark, tile.noteNode));
+  }
+  swapTile.valueNode = el("div", { class: "value" });
+  swapTile.fill = el("div", { style: "background:var(--mem)" });
+  swapTile.noteNode = el("div", { class: "note" });
+  $("tiles").append(el("div", { class: "tile" }, el("h2", {}, "Swap"), swapTile.valueNode,
+    el("div", { class: "meter" }, swapTile.fill), swapTile.noteNode));
+}
+
+function hoverTile(tile, spark, event) {
+  if (state.history.length < 2) return;
+  const box = spark.getBoundingClientRect();
+  const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+  tile.hovered = Math.round(fraction * (state.history.length - 1));
+  tile.cursor.style.display = "block";
+  tile.cursor.style.left = `${100 * tile.hovered / (state.history.length - 1)}%`;
+  renderTiles();
+}
+
+function setValue(node, [figure, unit]) {
+  node.replaceChildren(figure, el("small", {}, unit));
+}
+
+function renderTiles() {
+  const system = state.snapshot.system;
+  const history = state.history;
+  const now = history[history.length - 1];
+  for (const tile of TILES) {
+    setValue(tile.valueNode, tile.value(now, system));
+    const top = Math.max(tile.ceiling(system), ...history.map((point) => point[tile.key]));
+    tile.line.setAttribute("points", history.map((point, index) =>
+      `${history.length > 1 ? 100 * index / (history.length - 1) : 0},${38 - 36 * point[tile.key] / top}`).join(" "));
+    const hovered = history[tile.hovered];
+    if (hovered) {
+      tile.noteNode.textContent = `${formatTime(hovered.time)} · ${tile.describe(hovered)}`;
+      continue;
+    }
+    const [icon, label] = tile.note(now, system);
+    tile.noteNode.replaceChildren(label);
+    if (icon) tile.noteNode.prepend(el("span", { style: `color:var(${icon[1]})` }, icon[0] + " "));
+  }
+  const used = system.swap_used_mb / 1024, total = system.swap_total_mb / 1024;
+  setValue(swapTile.valueNode, [used.toFixed(1), ` of ${total.toFixed(1)} GB`]);
+  swapTile.fill.style.width = total ? `${100 * used / total}%` : "0";
+  swapTile.noteNode.textContent = used > 1 ? "Memory has spilled to disk, which slows things down" : "Little or no swapping";
+}
+
+// ---- Refresh loop ----
+
+function record(snapshot) {
+  const processes = snapshot.processes;
+  const busiest = heaviest(processes, "cpu"), largest = heaviest(processes, "rss_kb");
+  state.history.push({
+    time: snapshot.taken_at,
+    cores: sum(processes, "cpu") / 100,
+    memoryGb: sum(processes, "rss_kb") / 1024 / 1024,
+    load: snapshot.system.load[0],
+    topCpu: `${busiest.name} (${busiest.cpu.toFixed(0)}%)`,
+    topMemory: `${largest.name} (${formatMemory(largest.rss_kb)})`,
+  });
+  if (state.history.length > HISTORY_LENGTH) state.history.shift();
+}
+
+function render() {
+  if (!state.snapshot) return;
+  $("by-process").setAttribute("aria-pressed", String(!state.group));
+  $("by-app").setAttribute("aria-pressed", String(state.group));
+  renderTiles();
+  renderTable();
+}
+
+async function refresh() {
+  if (!state.paused) {
+    try {
+      const response = await fetch("/api/snapshot");
+      state.snapshot = await response.json();
+      record(state.snapshot);
+      $("status").textContent = `Live · ${state.snapshot.processes.length} processes · updated ${formatTime(state.snapshot.taken_at)}`;
+      // Do not redraw under a text selection, so commands can be copied by hand.
+      if (!String(document.getSelection())) render();
+    } catch (error) {
+      $("status").textContent = "Lost contact with hogs. Is `hogs web` still running?";
+    }
+  }
+  setTimeout(refresh, REFRESH_MS);
+}
+
+function setGrouping(group) {
+  state.group = group;
+  state.expanded = null;
+  if (!COLUMNS[group ? "app" : "process"].some((column) => column.key === state.sort.key)) {
+    state.sort = { key: "cpu", descending: true };
+  }
+  render();
+}
+
+$("pause").addEventListener("click", () => {
+  state.paused = !state.paused;
+  $("pause").textContent = state.paused ? "Resume" : "Pause";
+  $("pause").setAttribute("aria-pressed", String(state.paused));
+  if (state.paused && state.snapshot) $("status").textContent = "Paused · showing " + formatTime(state.snapshot.taken_at);
+});
+$("filter").addEventListener("input", (event) => { state.filter = event.target.value.trim(); render(); });
+$("limit").addEventListener("change", (event) => { state.limit = Number(event.target.value); render(); });
+$("by-process").addEventListener("click", () => setGrouping(false));
+$("by-app").addEventListener("click", () => setGrouping(true));
+
+buildTiles();
+refresh();
+</script>
+</body>
+</html>
