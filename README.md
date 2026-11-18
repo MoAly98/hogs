@@ -35,10 +35,14 @@ never kills anything itself.
 
 ## Install
 
+From a clone of this repo:
+
 ```
-uv sync
-alias hogs="uv run --project /path/to/hogs hogs"
+uv tool install --editable .
 ```
+
+This puts a `hogs` command on your PATH. It is editable, so changes in the
+clone take effect without reinstalling.
 
 ## Develop
 
