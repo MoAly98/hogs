@@ -19,6 +19,11 @@ hogs web             # live view in the browser, Ctrl-C to stop
 Commands are cut to the terminal width only when printing to a terminal, so
 `hogs | grep python` still sees every command in full.
 
+In a terminal the tables are coloured the same way as the browser view: CPU
+in blue, memory in yellow, energy in green, with the ranked column in bold.
+Load turns red when it is more than the cores can run. Pipes get plain text,
+and setting `NO_COLOR` turns colour off in a terminal too.
+
 ### Browser view
 
 `hogs web` serves a page on `http://127.0.0.1:8765` (change with `--port`,

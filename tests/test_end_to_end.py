@@ -2,6 +2,7 @@
 
 import json
 import os
+import pty
 import socket
 import subprocess
 import sys
@@ -53,6 +54,26 @@ class TestTerminalRankingOfRealProcesses:
         assert len(sleeper_rows) == 1
         assert sleeper_rows[0][-2:] == ["sleep", "4242"]
         assert result.stderr == ""
+
+    def test_a_real_terminal_gets_a_blue_cpu_title_and_bold_summary_labels(self):
+        terminal, child_end = pty.openpty()
+        environment = {k: v for k, v in os.environ.items() if k != "NO_COLOR"}
+        try:
+            subprocess.run(
+                [HOGS, "cpu", "-n", "1"], stdout=child_end, stderr=subprocess.PIPE, env=environment, check=True
+            )
+            lines = os.read(terminal, 65536).decode().split("\r\n")
+        finally:
+            os.close(child_end)
+            os.close(terminal)
+        assert lines[0] == "\033[34;1m== top CPU ==\033[0m"
+        assert lines[1] == (
+            "\033[1m    PID\033[0m \033[34;1m  %CPU\033[0m \033[33;1m  %MEM\033[0m "
+            "\033[33;1m  RSS_MB\033[0m \033[32;1m POWER\033[0m \033[1m        ELAPSED\033[0m  "
+            "\033[1mCOMMAND\033[0m"
+        )
+        assert lines[4].startswith("\033[1mload:\033[0m ")
+        assert lines[5].startswith("\033[1mswap:\033[0m \033[33m")
 
 
 class TestLiveViewOfRealProcesses:

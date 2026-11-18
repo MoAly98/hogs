@@ -1,6 +1,7 @@
 """The `hogs` command."""
 
 import argparse
+import os
 import shutil
 import signal
 import sys
@@ -49,12 +50,15 @@ def _parser() -> argparse.ArgumentParser:
 def _print_rankings(mode: str, count: int, full: bool) -> None:
     rankings = RANKINGS[mode]
     snapshot = take_snapshot(any(metric == "energy" for _, metric in rankings))
-    # Cut commands only for a person at a terminal, so pipes still get everything.
-    width = shutil.get_terminal_size().columns if sys.stdout.isatty() and not full else None
+    # Cut commands and add colour only for a person at a terminal, so pipes
+    # still get everything as plain text.
+    on_terminal = sys.stdout.isatty()
+    width = shutil.get_terminal_size().columns if on_terminal and not full else None
+    color = on_terminal and not os.environ.get("NO_COLOR")
     for title, metric in rankings:
-        print(format_ranking(title, rank(snapshot.processes, metric, count), width))
+        print(format_ranking(title, metric, rank(snapshot.processes, metric, count), width, color))
         print()
-    print(format_system(snapshot.system))
+    print(format_system(snapshot.system, color))
 
 
 def _stop_on_terminate(signum: int, frame: object) -> None:
